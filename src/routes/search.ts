@@ -5,6 +5,59 @@ import { httpGet, formatQuery, findBestMatch,
 import { fetchHifi } from './shared';
 import { qobuzProxyGet } from './qobuz';
 
+const PROVIDER_ID = 'com.resonance.qobuz-tidal';
+
+// ─── Resonance shape helpers ──────────────────────────────────────────────────
+
+// Converts our internal flat track object → Resonance Track shape
+function toResonanceTrack(t: any): any {
+  if (!t?.id) return null;
+  const artistName: string = t.artist || 'Unknown Artist';
+  const artistId: string | null = t.artistId || null;
+  return {
+    id: `${PROVIDER_ID}:${t.id}`,
+    provider: PROVIDER_ID,
+    title: t.title || 'Unknown',
+    artists: [{ id: artistId, name: artistName }],
+    album: t.album ? { id: t.albumId ? `${PROVIDER_ID}:${t.albumId}` : null, name: t.album } : null,
+    duration: t.duration ? mmss(t.duration) : null,
+    durationSeconds: t.duration || null,
+    thumbnailURL: t.artworkURL || null,
+    isExplicit: t.explicit === true,
+  };
+}
+
+function mmss(secs: number): string {
+  const m = Math.floor(secs / 60);
+  const s = Math.floor(secs % 60);
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+function toResonanceAlbum(a: any): any {
+  if (!a?.id) return null;
+  const artistName: string = a.artist || 'Unknown Artist';
+  return {
+    id: `${PROVIDER_ID}:${a.id}`,
+    provider: PROVIDER_ID,
+    title: a.title || 'Unknown',
+    artists: [{ id: null, name: artistName }],
+    year: a.year || null,
+    thumbnailURL: a.artworkURL || null,
+    isExplicit: a.explicit === true,
+  };
+}
+
+function toResonanceArtist(a: any): any {
+  if (!a?.id) return null;
+  return {
+    id: `${PROVIDER_ID}:${String(a.id).replace(/^hifi:/, 'hifi:')}`,
+    provider: PROVIDER_ID,
+    name: a.name || 'Unknown',
+    thumbnailURL: a.artworkURL || null,
+    subscriberCount: null,
+  };
+}
+
 // ─── ISRC helpers ─────────────────────────────────────────────────────────────
 async function getIsrcFromTidal(query: string, instances: string[]): Promise<any> {
   try {
@@ -43,7 +96,7 @@ async function getIsrcFromDeezer(query: string): Promise<any> {
 }
 
 // ─── SEARCH TRACKS ────────────────────────────────────────────────────────────
-export async function handleSearchTracks(config: QTConfig, query: string): Promise<any[]> {
+async function handleSearchTracks(config: QTConfig, query: string): Promise<any[]> {
   const cleanedQuery = formatQuery(query);
   const userQuality  = config.quality      || 'HIRES';
   const tidalQuality = config.tidalQuality || 'HIGH';
@@ -107,12 +160,16 @@ export async function handleSearchTracks(config: QTConfig, query: string): Promi
     } catch {}
   }
 
-  return finalTracks;
+  // Wrap in Resonance SearchResultItem shape
+  return finalTracks
+    .map(t => toResonanceTrack(t))
+    .filter(Boolean)
+    .map(track => ({ type: 'track' as const, track }));
 }
 
 // ─── SEARCH (unified handler) ─────────────────────────────────────────────────
 export async function handleSearch(config: QTConfig, query: string, filter?: string): Promise<any[]> {
-  if (!filter || filter === 'tracks') return handleSearchTracks(config, query);
+  if (!filter || filter === 'songs' || filter === 'tracks') return handleSearchTracks(config, query);
 
   if (filter === 'albums') {
     try {
@@ -123,22 +180,34 @@ export async function handleSearch(config: QTConfig, query: string, filter?: str
       ]);
       const results: any[] = [];
       if (hifiRes.status === 'fulfilled' && hifiRes.value) {
-        const albums = hifiRes.value?.data?.albums?.items || hifiRes.value?.albums?.items || [];
+        const albums = (hifiRes.value as any)?.data?.albums?.items || (hifiRes.value as any)?.albums?.items || [];
         for (const a of (Array.isArray(albums) ? albums : [])) {
           if (!a?.id) continue;
-          results.push({ id: 'hifi:' + String(a.id), title: a.title || 'Unknown', artist: a.artist?.name || '', artworkURL: null, year: a.releaseDate ? String(a.releaseDate).slice(0,4) : undefined });
+          results.push({
+            id: 'hifi:' + String(a.id),
+            title: a.title || 'Unknown',
+            artist: a.artist?.name || '',
+            artworkURL: null,
+            year: a.releaseDate ? String(a.releaseDate).slice(0, 4) : null,
+            explicit: false,
+          });
         }
       }
       if (qobuzRes.status === 'fulfilled' && qobuzRes.value) {
-        const items = qobuzRes.value?.albums?.items || [];
+        const items = (qobuzRes.value as any)?.albums?.items || [];
         const seen  = new Set(results.map(r => r.id));
         for (const a of items) {
           const mapped = mapQobuzAlbum(a);
           if (!mapped || seen.has(mapped.id)) continue;
-          seen.add(mapped.id); results.push(mapped);
+          seen.add(mapped.id);
+          results.push(mapped);
         }
       }
-      return results.slice(0, 25);
+      return results
+        .slice(0, 25)
+        .map(a => toResonanceAlbum(a))
+        .filter(Boolean)
+        .map(album => ({ type: 'album' as const, album }));
     } catch { return []; }
   }
 
@@ -151,14 +220,14 @@ export async function handleSearch(config: QTConfig, query: string, filter?: str
       ]);
       const results: any[] = [];
       if (hifiRes.status === 'fulfilled' && hifiRes.value) {
-        const artists = hifiRes.value?.data?.artists?.items || hifiRes.value?.artists?.items || [];
+        const artists = (hifiRes.value as any)?.data?.artists?.items || (hifiRes.value as any)?.artists?.items || [];
         for (const a of (Array.isArray(artists) ? artists : [])) {
           if (!a?.id) continue;
           results.push({ id: 'hifi:' + String(a.id), name: a.name || 'Unknown', artworkURL: null });
         }
       }
       if (qobuzRes.status === 'fulfilled' && qobuzRes.value) {
-        const items = qobuzRes.value?.artists?.items || [];
+        const items = (qobuzRes.value as any)?.artists?.items || [];
         const seen  = new Set(results.map(r => r.name?.toLowerCase()));
         for (const a of items) {
           if (!a?.id) continue;
@@ -169,9 +238,14 @@ export async function handleSearch(config: QTConfig, query: string, filter?: str
           }
         }
       }
-      return results.slice(0, 25);
+      return results
+        .slice(0, 25)
+        .map(a => toResonanceArtist(a))
+        .filter(Boolean)
+        .map(artist => ({ type: 'artist' as const, artist }));
     } catch { return []; }
   }
 
-  return [];
+  // fallback: try tracks for any unknown filter
+  return handleSearchTracks(config, query);
 }
