@@ -1,0 +1,16 @@
+{
+  "name": "@resonance-addons/qobuz-tidal-addon",
+  "module": "src/index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "bun ../../scripts/build.ts --addon=qobuz-tidal-addon"
+  },
+  "dependencies": {
+    "@resonance-addons/sdk": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "@types/bun": "latest"
+  }
+}
