@@ -1,9 +1,13 @@
 {
-  "extends": "../../tsconfig.json",
   "compilerOptions": {
-    "baseUrl": ".",
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "skipLibCheck": true,
     "paths": {
-      "@resonance-addons/sdk": ["../sdk/src/index.ts"]
+      "@resonance-addons/sdk": ["./sdk/index.ts"]
     }
-  }
+  },
+  "include": ["src/**/*", "sdk/**/*"]
 }

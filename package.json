@@ -4,11 +4,9 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "build": "bun ../../scripts/build.ts --addon=qobuz-tidal-addon"
+    "build": "bun build src/index.ts --outfile dist/qobuz-tidal-addon.js --target browser --format iife --minify"
   },
-  "dependencies": {
-    "@resonance-addons/sdk": "*"
-  },
+  "dependencies": {},
   "devDependencies": {
     "typescript": "^5.0.0",
     "@types/bun": "latest"
