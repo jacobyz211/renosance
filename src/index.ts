@@ -14,7 +14,7 @@ export interface QTConfig {
 export const addon = defineAddon<QTConfig>({
   id: PROVIDER_ID,
   name: 'Qobuz + Tidal',
-  description: 'Hi-Res Qobuz streaming with Tidal HiFi fallback — ISRC scoring engine v1.13',
+  description: 'Hi-Res Qobuz streaming with Tidal HiFi — ISRC scoring engine v1.13',
   version: '1.0.0',
   icon: { type: 'remote', value: 'https://www.qobuz.com/apple-touch-icon.png' },
 
