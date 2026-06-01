@@ -5,13 +5,10 @@ import { handleAlbum, handleArtist, handlePlaylist } from './routes/detail';
 
 const PROVIDER_ID = 'com.resonance.qobuz-tidal';
 
+// No credentials in config — all hardcoded in config.ts
 export interface QTConfig {
-  qobuzAppId: string;
-  qobuzUserToken: string;
-  qobuzSecret: string;
-  quality: string;          // HIRES | HIRES_96 | CD | MP3
-  tidalQuality: string;     // HIGH | LOW
-  hifiInstances?: string;   // comma-separated custom HiFi URLs
+  quality:      string;  // HIRES | HIRES_96 | CD | MP3
+  tidalQuality: string;  // HIGH | LOW
 }
 
 export const addon = defineAddon<QTConfig>({
@@ -33,11 +30,8 @@ export const addon = defineAddon<QTConfig>({
 
   auth: {
     type: 'token',
-    label: 'Enter your Qobuz API credentials',
+    label: 'Select quality settings',
     fields: [
-      { key: 'qobuzAppId',     type: 'text',     title: 'Qobuz App ID',         isRequired: true,  defaultValue: '312369995' },
-      { key: 'qobuzUserToken', type: 'password',  title: 'Qobuz User Auth Token', isRequired: true },
-      { key: 'qobuzSecret',    type: 'password',  title: 'Qobuz Secret',          isRequired: true },
       {
         key: 'quality', type: 'select', title: 'Qobuz Quality',
         options: ['HIRES', 'HIRES_96', 'CD', 'MP3'], defaultValue: 'HIRES',
@@ -46,11 +40,10 @@ export const addon = defineAddon<QTConfig>({
         key: 'tidalQuality', type: 'select', title: 'Tidal Fallback Quality',
         options: ['HIGH', 'LOW'], defaultValue: 'HIGH',
       },
-      { key: 'hifiInstances', type: 'text', title: 'Custom HiFi Instances (comma-separated, optional)', isRequired: false },
     ],
   },
 
-  behaviorHints: { configurable: true, configurationRequired: true },
+  behaviorHints: { configurable: true, configurationRequired: false },
 
   capabilities: {
     supportsSearchSuggestions: false,
@@ -60,10 +53,10 @@ export const addon = defineAddon<QTConfig>({
   },
 
   handlers: {
-    resolveStream:    (config, trackId)   => handleStream(config, trackId),
-    search:           (config, query, filter) => handleSearch(config, query, filter),
-    getAlbumDetail:   (config, id)        => handleAlbum(config, id),
-    getArtistDetail:  (config, id)        => handleArtist(config, id),
-    getPlaylistDetail:(config, id)        => handlePlaylist(config, id),
+    resolveStream:     (config, trackId)          => handleStream(config, trackId),
+    search:            (config, query, filter)    => handleSearch(config, query, filter),
+    getAlbumDetail:    (config, id)               => handleAlbum(config, id),
+    getArtistDetail:   (config, id)               => handleArtist(config, id),
+    getPlaylistDetail: (config, id)               => handlePlaylist(config, id),
   },
 });

@@ -1,15 +1,12 @@
-import type { QTConfig } from '../index';
-import { UA, TIMEOUT_MS, QOBUZ_BASE, QOBUZ_INSTANCES } from '../config';
+import { UA, TIMEOUT_MS, QOBUZ_BASE, QOBUZ_INSTANCES, APP_ID, USER_TOKEN } from '../config';
 
-export async function qobuzProxyGet(config: QTConfig, endpoint: string, params?: Record<string, string | number>): Promise<any> {
-  const appId     = config.qobuzAppId;
-  const userToken = config.qobuzUserToken;
-
-  // Direct API first
+// No config param needed for credentials — APP_ID and USER_TOKEN are hardcoded constants
+export async function qobuzProxyGet(endpoint: string, params?: Record<string, string | number>): Promise<any> {
+  // ── 1. Direct Qobuz API ──
   try {
     const url = new URL(QOBUZ_BASE + endpoint);
-    url.searchParams.set('app_id', appId);
-    url.searchParams.set('user_auth_token', userToken);
+    url.searchParams.set('app_id', APP_ID);
+    url.searchParams.set('user_auth_token', USER_TOKEN);
     if (params) Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, String(v)));
     const ctrl  = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
@@ -17,8 +14,8 @@ export async function qobuzProxyGet(config: QTConfig, endpoint: string, params?:
     clearTimeout(timer);
     if (!r.ok) throw new Error('Direct Qobuz HTTP ' + r.status);
     return await r.json();
-  } catch (directErr) {
-    // Proxy fallback
+  } catch {
+    // ── 2. Proxy fallback ──
     for (const inst of QOBUZ_INSTANCES) {
       const ctrl  = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), 7000);

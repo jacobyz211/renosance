@@ -3,6 +3,11 @@ export const TIMEOUT_MS = 12000;
 export const QOBUZ_BASE = 'https://www.qobuz.com/api.json/0.2';
 export const DEEZER_API = 'https://api.deezer.com';
 
+// ─── Hardcoded Qobuz credentials ─────────────────────────────────────────────
+export const APP_ID     = '312369995';
+export const USER_TOKEN = 'xDkvXFh-sRSrmN-s5rSdL4Dooppx4Q7G6VgnviHcxpBBv_RHxKmCKx1_XANKmz6IDVBtgBcwQHFWJgJObLpiJw';
+export const SECRET     = 'e79f8b9be485692b0e5f9dd895826368';
+
 export const QOBUZ_INSTANCES = [
   'https://qobuz-api1.onrender.com',
   'https://trypt-hifi-dl-456461932686.us-west1.run.app',

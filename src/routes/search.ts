@@ -1,15 +1,15 @@
 import type { QTConfig } from '../index';
 import { DEFAULT_HIFI_INSTANCES, DEEZER_API } from '../config';
-import { httpGet, normalizeStr, formatQuery, cleanTitle, findBestMatch, isArtistMatch,
-         mapQobuzTrack, mapHifiTrack, mapQobuzAlbum, tidalQualityLabel, trackArtist } from '../utils';
+import { httpGet, formatQuery, findBestMatch,
+         mapQobuzTrack, mapHifiTrack, mapQobuzAlbum, tidalQualityLabel } from '../utils';
 import { fetchHifi } from './shared';
 import { qobuzProxyGet } from './qobuz';
 
 // ─── ISRC helpers ─────────────────────────────────────────────────────────────
 async function getIsrcFromTidal(query: string, instances: string[]): Promise<any> {
   try {
-    const data = await fetchHifi('/search/?s=' + encodeURIComponent(query) + '&limit=30', instances);
-    const arr  = data?.data?.items || data?.data?.tracks?.items || data?.tracks?.items || data?.data || [];
+    const data  = await fetchHifi('/search/?s=' + encodeURIComponent(query) + '&limit=30', instances);
+    const arr   = data?.data?.items || data?.data?.tracks?.items || data?.tracks?.items || data?.data || [];
     const items = Array.isArray(arr) ? arr : (Array.isArray(data) ? data : []);
     const match = findBestMatch(items, query);
     if (match.item && match.score >= 100) {
@@ -44,29 +44,28 @@ async function getIsrcFromDeezer(query: string): Promise<any> {
 
 // ─── SEARCH TRACKS ────────────────────────────────────────────────────────────
 export async function handleSearchTracks(config: QTConfig, query: string): Promise<any[]> {
-  const cleanedQuery  = formatQuery(query);
-  const userQuality   = config.quality   || 'HIRES';
-  const tidalQuality  = config.tidalQuality || 'HIGH';
-  const instances     = config.hifiInstances?.split(',').map(s => s.trim()).filter(Boolean) || DEFAULT_HIFI_INSTANCES;
-  const maxResults    = 25;
+  const cleanedQuery = formatQuery(query);
+  const userQuality  = config.quality      || 'HIRES';
+  const tidalQuality = config.tidalQuality || 'HIGH';
+  const maxResults   = 25;
 
   const [isrcResults, hifiSeedData] = await Promise.all([
     Promise.race([
       Promise.all([
-        getIsrcFromTidal(cleanedQuery, instances).catch(() => null),
+        getIsrcFromTidal(cleanedQuery, DEFAULT_HIFI_INSTANCES).catch(() => null),
         getIsrcFromDeezer(cleanedQuery).catch(() => null),
       ]),
       new Promise<[null, null]>(res => setTimeout(() => res([null, null]), 7000)),
     ]),
     Promise.race([
-      fetchHifi('/search/?s=' + encodeURIComponent(cleanedQuery) + '&limit=' + maxResults, instances),
+      fetchHifi('/search/?s=' + encodeURIComponent(cleanedQuery) + '&limit=' + maxResults, DEFAULT_HIFI_INSTANCES),
       new Promise(res => setTimeout(() => res(null), 6000)),
     ]).catch(() => null),
   ]);
 
   let qobuzTracks: any[] = [];
   try {
-    const res   = await qobuzProxyGet(config, '/track/search', { query: cleanedQuery, limit: 75 });
+    const res   = await qobuzProxyGet('/track/search', { query: cleanedQuery, limit: 75 });
     const items = res?.tracks?.items || [];
     qobuzTracks = items.map((t: any) => mapQobuzTrack(t, userQuality)).filter(Boolean);
   } catch {}
@@ -80,7 +79,7 @@ export async function handleSearchTracks(config: QTConfig, query: string): Promi
   const masterIsrc = bestMaster?.isrc || null;
   if (masterIsrc) {
     try {
-      const res   = await qobuzProxyGet(config, '/track/search', { query: masterIsrc, limit: 1 });
+      const res   = await qobuzProxyGet('/track/search', { query: masterIsrc, limit: 1 });
       const items = res?.tracks?.items || [];
       if (items.length > 0) isrcTrack = mapQobuzTrack(items[0], userQuality);
     } catch {}
@@ -97,7 +96,6 @@ export async function handleSearchTracks(config: QTConfig, query: string): Promi
     finalTracks.push(...qobuzTracks.slice(0, maxResults));
   }
 
-  // HiFi fallback
   if (finalTracks.length === 0) {
     try {
       const hd = hifiSeedData as any;
@@ -118,11 +116,10 @@ export async function handleSearch(config: QTConfig, query: string, filter?: str
 
   if (filter === 'albums') {
     try {
-      const cleaned   = formatQuery(query);
-      const instances = config.hifiInstances?.split(',').map(s => s.trim()).filter(Boolean) || DEFAULT_HIFI_INSTANCES;
+      const cleaned = formatQuery(query);
       const [hifiRes, qobuzRes] = await Promise.allSettled([
-        fetchHifi('/search/?s=' + encodeURIComponent(cleaned) + '&limit=50', instances),
-        qobuzProxyGet(config, '/album/search', { query: cleaned, limit: 100 }),
+        fetchHifi('/search/?s=' + encodeURIComponent(cleaned) + '&limit=50', DEFAULT_HIFI_INSTANCES),
+        qobuzProxyGet('/album/search', { query: cleaned, limit: 100 }),
       ]);
       const results: any[] = [];
       if (hifiRes.status === 'fulfilled' && hifiRes.value) {
@@ -147,11 +144,10 @@ export async function handleSearch(config: QTConfig, query: string, filter?: str
 
   if (filter === 'artists') {
     try {
-      const cleaned   = formatQuery(query);
-      const instances = config.hifiInstances?.split(',').map(s => s.trim()).filter(Boolean) || DEFAULT_HIFI_INSTANCES;
+      const cleaned = formatQuery(query);
       const [hifiRes, qobuzRes] = await Promise.allSettled([
-        fetchHifi('/search/?s=' + encodeURIComponent(cleaned) + '&limit=25', instances),
-        qobuzProxyGet(config, '/artist/search', { query: cleaned, limit: 25 }),
+        fetchHifi('/search/?s=' + encodeURIComponent(cleaned) + '&limit=25', DEFAULT_HIFI_INSTANCES),
+        qobuzProxyGet('/artist/search', { query: cleaned, limit: 25 }),
       ]);
       const results: any[] = [];
       if (hifiRes.status === 'fulfilled' && hifiRes.value) {
