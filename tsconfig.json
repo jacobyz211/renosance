@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@resonance-addons/sdk": ["../sdk/src/index.ts"]
+    }
+  }
+}
