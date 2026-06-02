@@ -1,12 +1,13 @@
 {
-  "name": "@resonance-addons/qobuz-tidal-addon",
-  "module": "src/index.ts",
+  "name": "renosance",
+  "version": "1.0.0",
   "type": "module",
   "private": true,
+  "workspaces": ["packages/*"],
   "scripts": {
-    "build": "bun build src/index.ts --outfile dist/qobuz-tidal-addon.js --target browser --format iife --minify"
+    "build": "bun scripts/build.ts",
+    "build:addon": "bun scripts/build.ts --addon=qobuz-tidal-addon"
   },
-  "dependencies": {},
   "devDependencies": {
     "typescript": "^5.0.0",
     "@types/bun": "latest"

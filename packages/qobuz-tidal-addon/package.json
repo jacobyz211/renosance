@@ -1,0 +1,9 @@
+{
+  "name": "@resonance-addons/qobuz-tidal-addon",
+  "module": "src/index.ts",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "@resonance-addons/sdk": "*"
+  }
+}
