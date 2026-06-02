@@ -14,8 +14,8 @@ export interface QTConfig {
 export const addon = defineAddon<QTConfig>({
   id: PROVIDER_ID,
   name: 'Qobuz + Tidal',
-  description: 'Hi-Res Qobuz streaming with Tidal HiFi fallback — ISRC scoring engine',
-  version: '1.1.0',
+  description: 'Hi-Res Qobuz streaming with Tidal HiFi fallback and ISRC matching',
+  version: '1.2.0',
   icon: { type: 'remote', value: 'https://www.qobuz.com/apple-touch-icon.png' },
 
   resources: [
@@ -31,15 +31,21 @@ export const addon = defineAddon<QTConfig>({
 
   auth: {
     type: 'token',
-    label: 'Select quality settings',
+    label: 'Select audio quality',
     fields: [
       {
-        key: 'quality', type: 'select', title: 'Qobuz Quality',
-        options: ['HIRES', 'HIRES_96', 'CD', 'MP3'], defaultValue: 'HIRES',
+        key: 'quality',
+        type: 'select',
+        title: 'Qobuz Quality',
+        options: ['HIRES', 'HIRES_96', 'CD', 'MP3'],
+        defaultValue: 'HIRES',
       },
       {
-        key: 'tidalQuality', type: 'select', title: 'Tidal Fallback Quality',
-        options: ['HIGH', 'LOW'], defaultValue: 'HIGH',
+        key: 'tidalQuality',
+        type: 'select',
+        title: 'Tidal Fallback Quality',
+        options: ['HIGH', 'LOW'],
+        defaultValue: 'HIGH',
       },
     ],
   },
@@ -50,7 +56,12 @@ export const addon = defineAddon<QTConfig>({
     supportsSearchSuggestions: false,
     supportsLikeStatus: false,
     supportsContinuation: false,
-    supportsFilters: false,
+    supportsFilters: true,    // must be true for filter tabs (songs/albums/artists) to appear
+    supportsQuickAccess: false,
+    supportsRelated: false,
+    supportsRadio: false,
+    supportsQueueActions: false,
+    supportsAddToPlaylist: false,
   },
 
   handlers: {

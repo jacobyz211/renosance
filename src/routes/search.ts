@@ -1,31 +1,11 @@
 import type { QTConfig } from '../index';
+import type { SearchResultItem, Track, SearchAlbum, SearchArtist } from '../types';
 import { DEFAULT_HIFI_INSTANCES, DEEZER_API } from '../config';
-import { httpGet, formatQuery, findBestMatch,
-         mapQobuzTrack, mapHifiTrack, mapQobuzAlbum, tidalQualityLabel } from '../utils';
+import { httpGet, formatQuery, findBestMatch, mapQobuzTrack, mapHifiTrack, mapQobuzAlbum, tidalQualityLabel } from '../utils';
 import { fetchHifi } from './shared';
 import { qobuzProxyGet } from './qobuz';
 
 const PROVIDER_ID = 'com.resonance.qobuz-tidal';
-
-// ─── Resonance shape helpers ──────────────────────────────────────────────────
-
-// Converts our internal flat track object → Resonance Track shape
-function toResonanceTrack(t: any): any {
-  if (!t?.id) return null;
-  const artistName: string = t.artist || 'Unknown Artist';
-  const artistId: string | null = t.artistId || null;
-  return {
-    id: `${PROVIDER_ID}:${t.id}`,
-    provider: PROVIDER_ID,
-    title: t.title || 'Unknown',
-    artists: [{ id: artistId, name: artistName }],
-    album: t.album ? { id: t.albumId ? `${PROVIDER_ID}:${t.albumId}` : null, name: t.album } : null,
-    duration: t.duration ? mmss(t.duration) : null,
-    durationSeconds: t.duration || null,
-    thumbnailURL: t.artworkURL || null,
-    isExplicit: t.explicit === true,
-  };
-}
 
 function mmss(secs: number): string {
   const m = Math.floor(secs / 60);
@@ -33,219 +13,212 @@ function mmss(secs: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
-function toResonanceAlbum(a: any): any {
-  if (!a?.id) return null;
-  const artistName: string = a.artist || 'Unknown Artist';
+function qobuzArtwork(img: any, size = 600): string | null {
+  if (!img) return null;
+  const url: string = img.large || img.medium || img.small || img.thumbnail || '';
+  return url ? url.replace(/_\d+\./, `_${size}.`) : null;
+}
+
+// Flat internal track -> Resonance Track
+function toTrack(t: any): Track | null {
+  if (!t?.id) return null;
   return {
-    id: `${PROVIDER_ID}:${a.id}`,
+    id: String(t.id).startsWith(PROVIDER_ID + ':') ? t.id : `${PROVIDER_ID}:${t.id}`,
     provider: PROVIDER_ID,
-    title: a.title || 'Unknown',
-    artists: [{ id: null, name: artistName }],
-    year: a.year || null,
-    thumbnailURL: a.artworkURL || null,
-    isExplicit: a.explicit === true,
+    title: t.title || 'Unknown',
+    artists: [{ id: null, name: t.artist || 'Unknown Artist' }],
+    album: t.album ? { id: t.albumId ? `${PROVIDER_ID}:${t.albumId}` : null, name: t.album } : null,
+    duration: t.duration ? mmss(t.duration) : null,
+    durationSeconds: typeof t.duration === 'number' ? t.duration : null,
+    thumbnailURL: t.artworkURL || null,
+    isExplicit: t.explicit === true,
   };
 }
 
-function toResonanceArtist(a: any): any {
-  if (!a?.id) return null;
+// Raw Qobuz API track object -> Resonance Track
+function rawQobuzToTrack(t: any): Track | null {
+  if (!t?.id) return null;
+  const artistName = t.performer?.name || t.artist?.name || 'Unknown Artist';
+  const artwork = qobuzArtwork(t.album?.image);
   return {
-    id: `${PROVIDER_ID}:${String(a.id).replace(/^hifi:/, 'hifi:')}`,
+    id: `${PROVIDER_ID}:${t.id}`,
     provider: PROVIDER_ID,
-    name: a.name || 'Unknown',
-    thumbnailURL: a.artworkURL || null,
-    subscriberCount: null,
+    title: t.title || 'Unknown',
+    artists: [{ id: null, name: artistName }],
+    album: t.album?.title ? { id: t.album.id ? `${PROVIDER_ID}:${t.album.id}` : null, name: t.album.title } : null,
+    duration: t.duration ? mmss(t.duration) : null,
+    durationSeconds: t.duration ?? null,
+    thumbnailURL: artwork,
+    isExplicit: t.parental_warning === true,
   };
 }
 
 // ─── ISRC helpers ─────────────────────────────────────────────────────────────
-async function getIsrcFromTidal(query: string, instances: string[]): Promise<any> {
+async function getIsrcFromTidal(query: string): Promise<string | null> {
   try {
-    const data  = await fetchHifi('/search/?s=' + encodeURIComponent(query) + '&limit=30', instances);
+    const data  = await fetchHifi('/search/?s=' + encodeURIComponent(query) + '&limit=30', DEFAULT_HIFI_INSTANCES);
     const arr   = data?.data?.items || data?.data?.tracks?.items || data?.tracks?.items || data?.data || [];
-    const items = Array.isArray(arr) ? arr : (Array.isArray(data) ? data : []);
+    const items = Array.isArray(arr) ? arr : [];
     const match = findBestMatch(items, query);
-    if (match.item && match.score >= 100) {
-      let isrc = match.item.isrc;
-      if (!isrc) {
-        try {
-          const info = await fetchHifi('/info/?id=' + encodeURIComponent(match.item.id), instances);
-          isrc = (info?.data || info || {}).isrc;
-        } catch {}
-      }
-      return { isrc, track: match.item, source: 'tidal', score: match.score };
+    if (!match.item || match.score < 100) return null;
+    let isrc = match.item.isrc;
+    if (!isrc) {
+      try {
+        const info = await fetchHifi('/info/?id=' + encodeURIComponent(match.item.id), DEFAULT_HIFI_INSTANCES);
+        isrc = (info?.data || info || {}).isrc;
+      } catch {}
     }
-    return null;
+    return isrc || null;
   } catch { return null; }
 }
 
-async function getIsrcFromDeezer(query: string): Promise<any> {
+async function getIsrcFromDeezer(query: string): Promise<string | null> {
   try {
     const data = await httpGet(DEEZER_API + '/search/track', { q: query, limit: 25 }, 10000);
     if (!data?.data?.length) return null;
     const match = findBestMatch(data.data, query);
-    if (match.item && match.score >= 100) {
-      let isrc = match.item.isrc;
-      if (!isrc) {
-        try { isrc = (await httpGet(DEEZER_API + '/track/' + match.item.id, null, 5000)).isrc; } catch {}
-      }
-      return { isrc, track: match.item, source: 'deezer', score: match.score };
+    if (!match.item || match.score < 100) return null;
+    let isrc = match.item.isrc;
+    if (!isrc) {
+      try { isrc = (await httpGet(DEEZER_API + '/track/' + match.item.id, null, 5000)).isrc; } catch {}
     }
-    return null;
+    return isrc || null;
   } catch { return null; }
 }
 
-// ─── SEARCH TRACKS ────────────────────────────────────────────────────────────
-async function handleSearchTracks(config: QTConfig, query: string): Promise<any[]> {
-  const cleanedQuery = formatQuery(query);
-  const userQuality  = config.quality      || 'HIRES';
-  const tidalQuality = config.tidalQuality || 'HIGH';
-  const maxResults   = 25;
+// ─── Search: songs/tracks ─────────────────────────────────────────────────────
+async function searchTracks(config: QTConfig, query: string): Promise<SearchResultItem[]> {
+  const quality = config.quality || 'HIRES';
+  const tidalQ  = config.tidalQuality || 'HIGH';
+  const cleaned = formatQuery(query);
+  const MAX = 25;
 
-  const [isrcResults, hifiSeedData] = await Promise.all([
-    Promise.race([
-      Promise.all([
-        getIsrcFromTidal(cleanedQuery, DEFAULT_HIFI_INSTANCES).catch(() => null),
-        getIsrcFromDeezer(cleanedQuery).catch(() => null),
-      ]),
-      new Promise<[null, null]>(res => setTimeout(() => res([null, null]), 7000)),
-    ]),
-    Promise.race([
-      fetchHifi('/search/?s=' + encodeURIComponent(cleanedQuery) + '&limit=' + maxResults, DEFAULT_HIFI_INSTANCES),
-      new Promise(res => setTimeout(() => res(null), 6000)),
-    ]).catch(() => null),
+  // Fire Qobuz search + ISRC lookups in parallel
+  const [qobuzRes, tidalIsrc, deezerIsrc] = await Promise.allSettled([
+    qobuzProxyGet('/track/search', { query: cleaned, limit: 75 }),
+    getIsrcFromTidal(cleaned),
+    getIsrcFromDeezer(cleaned),
   ]);
 
-  let qobuzTracks: any[] = [];
-  try {
-    const res   = await qobuzProxyGet('/track/search', { query: cleanedQuery, limit: 75 });
-    const items = res?.tracks?.items || [];
-    qobuzTracks = items.map((t: any) => mapQobuzTrack(t, userQuality)).filter(Boolean);
-  } catch {}
+  const rawQobuz: any[] = (qobuzRes.status === 'fulfilled' ? qobuzRes.value?.tracks?.items : null) || [];
+  const isrc = (tidalIsrc.status === 'fulfilled' ? tidalIsrc.value : null)
+    || (deezerIsrc.status === 'fulfilled' ? deezerIsrc.value : null);
 
-  const [tidalMaster, deezerMaster] = isrcResults as [any, any];
-  const bestMaster = tidalMaster && deezerMaster
-    ? (tidalMaster.score >= deezerMaster.score ? tidalMaster : deezerMaster)
-    : (tidalMaster || deezerMaster);
-
-  let isrcTrack = null;
-  const masterIsrc = bestMaster?.isrc || null;
-  if (masterIsrc) {
+  // ISRC pin: find the exact Qobuz match first
+  let pinned: Track | null = null;
+  if (isrc) {
     try {
-      const res   = await qobuzProxyGet('/track/search', { query: masterIsrc, limit: 1 });
-      const items = res?.tracks?.items || [];
-      if (items.length > 0) isrcTrack = mapQobuzTrack(items[0], userQuality);
+      const r = await qobuzProxyGet('/track/search', { query: isrc, limit: 1 });
+      const item = r?.tracks?.items?.[0];
+      if (item) pinned = rawQobuzToTrack(item);
     } catch {}
   }
 
-  const finalTracks: any[] = [];
-  if (isrcTrack) {
-    finalTracks.push(isrcTrack);
-    for (const t of qobuzTracks) {
-      if (finalTracks.length >= maxResults) break;
-      if (t.id !== isrcTrack.id) finalTracks.push(t);
-    }
-  } else {
-    finalTracks.push(...qobuzTracks.slice(0, maxResults));
+  const seen = new Set<string>();
+  const results: SearchResultItem[] = [];
+
+  if (pinned) {
+    seen.add(pinned.id);
+    results.push({ type: 'track', track: pinned });
   }
 
-  if (finalTracks.length === 0) {
+  for (const t of rawQobuz) {
+    if (results.length >= MAX) break;
+    const track = rawQobuzToTrack(t);
+    if (!track || seen.has(track.id)) continue;
+    seen.add(track.id);
+    results.push({ type: 'track', track });
+  }
+
+  // Tidal fallback if Qobuz returned nothing
+  if (results.length === 0) {
     try {
-      const hd = hifiSeedData as any;
+      const hd = await fetchHifi('/search/?s=' + encodeURIComponent(cleaned) + '&limit=' + MAX, DEFAULT_HIFI_INSTANCES);
       const items: any[] = hd?.data?.items || hd?.data?.tracks?.items || hd?.data || [];
-      (Array.isArray(items) ? items : []).slice(0, maxResults).forEach((item: any) => {
-        const t = mapHifiTrack(item, tidalQuality);
-        if (t) { t.audioQuality = tidalQualityLabel(tidalQuality) + ' · Fallback'; finalTracks.push(t); }
-      });
+      for (const item of (Array.isArray(items) ? items : []).slice(0, MAX)) {
+        const flat = mapHifiTrack(item, tidalQ);
+        if (!flat) continue;
+        const track = toTrack(flat);
+        if (!track || seen.has(track.id)) continue;
+        seen.add(track.id);
+        results.push({ type: 'track', track });
+      }
     } catch {}
   }
 
-  // Wrap in Resonance SearchResultItem shape
-  return finalTracks
-    .map(t => toResonanceTrack(t))
-    .filter(Boolean)
-    .map(track => ({ type: 'track' as const, track }));
+  return results;
 }
 
-// ─── SEARCH (unified handler) ─────────────────────────────────────────────────
-export async function handleSearch(config: QTConfig, query: string, filter?: string): Promise<any[]> {
-  if (!filter || filter === 'songs' || filter === 'tracks') return handleSearchTracks(config, query);
+// ─── Search: albums ───────────────────────────────────────────────────────────
+async function searchAlbums(_config: QTConfig, query: string): Promise<SearchResultItem[]> {
+  const cleaned = formatQuery(query);
+  const results: SearchResultItem[] = [];
+  const seen = new Set<string>();
 
-  if (filter === 'albums') {
-    try {
-      const cleaned = formatQuery(query);
-      const [hifiRes, qobuzRes] = await Promise.allSettled([
-        fetchHifi('/search/?s=' + encodeURIComponent(cleaned) + '&limit=50', DEFAULT_HIFI_INSTANCES),
-        qobuzProxyGet('/album/search', { query: cleaned, limit: 100 }),
-      ]);
-      const results: any[] = [];
-      if (hifiRes.status === 'fulfilled' && hifiRes.value) {
-        const albums = (hifiRes.value as any)?.data?.albums?.items || (hifiRes.value as any)?.albums?.items || [];
-        for (const a of (Array.isArray(albums) ? albums : [])) {
-          if (!a?.id) continue;
-          results.push({
-            id: 'hifi:' + String(a.id),
-            title: a.title || 'Unknown',
-            artist: a.artist?.name || '',
-            artworkURL: null,
-            year: a.releaseDate ? String(a.releaseDate).slice(0, 4) : null,
-            explicit: false,
-          });
-        }
-      }
-      if (qobuzRes.status === 'fulfilled' && qobuzRes.value) {
-        const items = (qobuzRes.value as any)?.albums?.items || [];
-        const seen  = new Set(results.map(r => r.id));
-        for (const a of items) {
-          const mapped = mapQobuzAlbum(a);
-          if (!mapped || seen.has(mapped.id)) continue;
-          seen.add(mapped.id);
-          results.push(mapped);
-        }
-      }
-      return results
-        .slice(0, 25)
-        .map(a => toResonanceAlbum(a))
-        .filter(Boolean)
-        .map(album => ({ type: 'album' as const, album }));
-    } catch { return []; }
-  }
+  try {
+    const res = await qobuzProxyGet('/album/search', { query: cleaned, limit: 50 });
+    const items: any[] = res?.albums?.items || [];
+    for (const a of items) {
+      if (!a?.id) continue;
+      const id = `${PROVIDER_ID}:${a.id}`;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const artistName = a.artist?.name || 'Unknown Artist';
+      const artwork = qobuzArtwork(a.image);
+      const year = a.released_at
+        ? String(new Date(a.released_at * 1000).getFullYear())
+        : (a.release_date_original ? String(a.release_date_original).slice(0, 4) : null);
+      const album: SearchAlbum = {
+        id,
+        provider: PROVIDER_ID,
+        title: a.title || 'Unknown',
+        artists: [{ id: null, name: artistName }],
+        year,
+        thumbnailURL: artwork,
+        isExplicit: a.parental_warning === true,
+      };
+      results.push({ type: 'album', album });
+      if (results.length >= 25) break;
+    }
+  } catch {}
 
-  if (filter === 'artists') {
-    try {
-      const cleaned = formatQuery(query);
-      const [hifiRes, qobuzRes] = await Promise.allSettled([
-        fetchHifi('/search/?s=' + encodeURIComponent(cleaned) + '&limit=25', DEFAULT_HIFI_INSTANCES),
-        qobuzProxyGet('/artist/search', { query: cleaned, limit: 25 }),
-      ]);
-      const results: any[] = [];
-      if (hifiRes.status === 'fulfilled' && hifiRes.value) {
-        const artists = (hifiRes.value as any)?.data?.artists?.items || (hifiRes.value as any)?.artists?.items || [];
-        for (const a of (Array.isArray(artists) ? artists : [])) {
-          if (!a?.id) continue;
-          results.push({ id: 'hifi:' + String(a.id), name: a.name || 'Unknown', artworkURL: null });
-        }
-      }
-      if (qobuzRes.status === 'fulfilled' && qobuzRes.value) {
-        const items = (qobuzRes.value as any)?.artists?.items || [];
-        const seen  = new Set(results.map(r => r.name?.toLowerCase()));
-        for (const a of items) {
-          if (!a?.id) continue;
-          const name = a.name || 'Unknown';
-          if (!seen.has(name.toLowerCase())) {
-            seen.add(name.toLowerCase());
-            results.push({ id: String(a.id), name, artworkURL: a.image?.large || null });
-          }
-        }
-      }
-      return results
-        .slice(0, 25)
-        .map(a => toResonanceArtist(a))
-        .filter(Boolean)
-        .map(artist => ({ type: 'artist' as const, artist }));
-    } catch { return []; }
-  }
+  return results;
+}
 
-  // fallback: try tracks for any unknown filter
-  return handleSearchTracks(config, query);
+// ─── Search: artists ──────────────────────────────────────────────────────────
+async function searchArtists(_config: QTConfig, query: string): Promise<SearchResultItem[]> {
+  const cleaned = formatQuery(query);
+  const results: SearchResultItem[] = [];
+  const seen = new Set<string>();
+
+  try {
+    const res = await qobuzProxyGet('/artist/search', { query: cleaned, limit: 25 });
+    const items: any[] = res?.artists?.items || [];
+    for (const a of items) {
+      if (!a?.id) continue;
+      const id = `${PROVIDER_ID}:${a.id}`;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const artwork = a.image?.large || a.image?.medium || a.image?.small || null;
+      const artist: SearchArtist = {
+        id,
+        provider: PROVIDER_ID,
+        name: a.name || 'Unknown',
+        thumbnailURL: artwork,
+        subscriberCount: null,   // string | null per SDK spec
+      };
+      results.push({ type: 'artist', artist });
+    }
+  } catch {}
+
+  return results;
+}
+
+// ─── Unified handler ──────────────────────────────────────────────────────────
+export async function handleSearch(config: QTConfig, query: string, filter?: string): Promise<SearchResultItem[]> {
+  if (!filter || filter === 'songs' || filter === 'tracks') return searchTracks(config, query);
+  if (filter === 'albums')  return searchAlbums(config, query);
+  if (filter === 'artists') return searchArtists(config, query);
+  // unknown filter — default to tracks
+  return searchTracks(config, query);
 }
